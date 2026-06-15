@@ -46,24 +46,12 @@ backend/
 ## ⚙️ Configuración e Instalación
 
 ### Requisitos Previos
+
 - **Python >= 3.14**
 - **uv** (Recomendado) o **pip**
 
-### Paso 1: Configurar Variables de Entorno
-Crea un archivo `.env` en la raíz del directorio `backend/` basado en la siguiente configuración:
-
-```env
-DATABASE_URL=postgresql+asyncpg://postgres:[contraseña]@[host]:5432/postgres
-SUPABASE_JWT_SECRET=tu-supabase-jwt-secret-para-tokens-HS256
-SUPABASE_URL=https://[tu-proyecto].supabase.co
-SUPABASE_ANON_KEY=tu-supabase-anon-key
-ADMIN_REGISTRATION_SECRET=RuralTechAdmin2026!
-```
-
-> [!NOTE]
-> Puedes obtener el `SUPABASE_JWT_SECRET` en tu panel de Supabase: *Settings -> API -> JWT Settings -> JWT Secret*.
-
 ### Paso 2: Instalar Dependencias
+
 Si estás utilizando `uv`, las dependencias se instalarán automáticamente al arrancar. También puedes instalarlas manualmente:
 
 ```bash
@@ -71,11 +59,13 @@ uv sync
 ```
 
 Si prefieres usar `pip` estándar:
+
 ```bash
 pip install -r pyproject.toml
 ```
 
 ### Paso 3: Ejecutar el Servidor de Desarrollo
+
 Para arrancar el backend con recarga automática:
 
 ```bash
@@ -89,6 +79,7 @@ El servidor estará disponible en `http://127.0.0.1:8000`. Puedes consultar la d
 ## 🔒 Autenticación y Autorización
 
 El backend delega la autenticación a **Supabase Auth** pero realiza la validación de manera local y ágil en `src/auth/dependencies.py`:
+
 1. **Validación JWT:** El backend intercepta los tokens enviados en la cabecera `Authorization: Bearer <token>`.
 2. **Soporte Algoritmos:** Admite firmas `HS256` (usando el secreto compartido) y `ES256` (consultando dinámicamente las claves públicas JWKS de Supabase desde `SUPABASE_URL/auth/v1/.well-known/jwks.json`).
 3. **Autocreación de Perfil:** Cuando un usuario autenticado por primera vez realiza una petición a la API, el backend extrae sus metadatos del token (email, nombre, rol, ubicación) y crea automáticamente su registro en la tabla `perfiles` local.
@@ -99,28 +90,34 @@ El backend delega la autenticación a **Supabase Auth** pero realiza la validaci
 ## 📦 Capas de la Arquitectura
 
 ### 1. Controladores (`src/components/controllers.py`)
+
 Mapea los endpoints HTTP y se comunica con la capa de servicios o repositorios según corresponda. Maneja la conversión de payloads a esquemas Pydantic y el retorno de respuestas HTTP.
 
 ### 2. Servicios (`src/services/services.py`)
+
 Encapsula la lógica de negocio del negocio educativo rural.
+
 - Coordina la lógica de inscripción.
 - Calcula el avance general del estudiante al completar lecciones.
 - Dispara notificaciones en tiempo real al usuario.
 - Genera automáticamente certificados cuando el progreso alcanza el 100%.
 
 ### 3. Repositorios (`src/repositories/repositories.py`)
+
 Implementa el patrón repositorio para desacoplar el acceso a la base de datos de la lógica de negocio. Utiliza sentencias SQL nativas y mapea las tuplas resultantes a una clase utilitaria llamada `RowObject`, la cual permite leer las columnas como propiedades del objeto (e.g. `perfil.nombre`).
 
 ### 4. Esquemas Pydantic (`src/schemas/schemas.py`)
+
 Define la estructura esperada para recibir datos y responder al cliente, garantizando la validación de tipos, formatos de email y conversión de UUIDs.
 
 ---
 
 ## 🔄 Sincronización Offline (Offline Sync)
 
-Una de las características clave de **Rural-Tech** es la resiliencia en zonas con baja o nula conectividad a internet. 
+Una de las características clave de **Rural-Tech** es la resiliencia en zonas con baja o nula conectividad a internet.
 
 El backend expone un endpoint `/api/sincronizacion/sync` que recibe una lista de acciones que el usuario realizó en local mientras estaba offline:
+
 - **`COMPLETE_LESSON`**: Registra que el estudiante leyó/completó un módulo.
 - **`SUBMIT_ASSESSMENT`**: Envía el puntaje obtenido por el estudiante en una evaluación offline.
 - **`ENROLL_COURSE`**: Inscribe al estudiante a un nuevo curso descargado.
@@ -132,38 +129,44 @@ El backend ejecuta estas tareas secuencialmente, recalculando el progreso global
 ## 🔌 API Endpoints (Resumen)
 
 ### Autenticación (`/api/auth`)
-*   `POST /api/auth/register`: Registra un estudiante llamando internamente al endpoint administrativo de Supabase.
-*   `POST /api/auth/register-admin`: Registra un administrador. Requiere pasar el secreto `ADMIN_REGISTRATION_SECRET`.
+
+- `POST /api/auth/register`: Registra un estudiante llamando internamente al endpoint administrativo de Supabase.
+- `POST /api/auth/register-admin`: Registra un administrador. Requiere pasar el secreto `ADMIN_REGISTRATION_SECRET`.
 
 ### Cursos (`/api/cursos`)
-*   `GET /api/cursos/`: Obtiene todos los cursos disponibles. Los administradores pueden pasar el parámetro `all=true` para listar también los ocultos.
-*   `GET /api/cursos/{curso_id}`: Obtiene el detalle de un curso con su listado de módulos ordenados.
-*   `POST /api/cursos/` *(Sólo Admin)*: Crea un nuevo curso y notifica a todos los usuarios.
-*   `PUT /api/cursos/{curso_id}` *(Sólo Admin)*: Actualiza un curso existente.
-*   `DELETE /api/cursos/{curso_id}` *(Sólo Admin)*: Elimina un curso.
-*   `POST /api/cursos/{curso_id}/modulos` *(Sólo Admin)*: Añade un módulo a un curso.
-*   `PUT /api/cursos/{curso_id}/modulos/{modulo_id}` *(Sólo Admin)*: Actualiza un módulo.
-*   `DELETE /api/cursos/{curso_id}/modulos/{modulo_id}` *(Sólo Admin)*: Elimina un módulo.
+
+- `GET /api/cursos/`: Obtiene todos los cursos disponibles. Los administradores pueden pasar el parámetro `all=true` para listar también los ocultos.
+- `GET /api/cursos/{curso_id}`: Obtiene el detalle de un curso con su listado de módulos ordenados.
+- `POST /api/cursos/` _(Sólo Admin)_: Crea un nuevo curso y notifica a todos los usuarios.
+- `PUT /api/cursos/{curso_id}` _(Sólo Admin)_: Actualiza un curso existente.
+- `DELETE /api/cursos/{curso_id}` _(Sólo Admin)_: Elimina un curso.
+- `POST /api/cursos/{curso_id}/modulos` _(Sólo Admin)_: Añade un módulo a un curso.
+- `PUT /api/cursos/{curso_id}/modulos/{modulo_id}` _(Sólo Admin)_: Actualiza un módulo.
+- `DELETE /api/cursos/{curso_id}/modulos/{modulo_id}` _(Sólo Admin)_: Elimina un módulo.
 
 ### Inscripciones (`/api/inscripciones`)
-*   `POST /api/inscripciones/inscribir`: Inscribe al usuario actual en un curso.
-*   `DELETE /api/inscripciones/desinscribir/{curso_id}`: Cancela la inscripción.
-*   `GET /api/inscripciones/mis-cursos`: Obtiene la lista de inscripciones del usuario actual.
-*   `GET /api/inscripciones/mis-cursos/detalle`: Obtiene las inscripciones cargando en la misma respuesta la información completa del curso.
-*   `GET /api/inscripciones/progreso-lecciones`: Obtiene el registro detallado de módulos completados y sus puntajes.
-*   `POST /api/inscripciones/progreso-leccion`: Guarda o actualiza el progreso en un módulo específico.
+
+- `POST /api/inscripciones/inscribir`: Inscribe al usuario actual en un curso.
+- `DELETE /api/inscripciones/desinscribir/{curso_id}`: Cancela la inscripción.
+- `GET /api/inscripciones/mis-cursos`: Obtiene la lista de inscripciones del usuario actual.
+- `GET /api/inscripciones/mis-cursos/detalle`: Obtiene las inscripciones cargando en la misma respuesta la información completa del curso.
+- `GET /api/inscripciones/progreso-lecciones`: Obtiene el registro detallado de módulos completados y sus puntajes.
+- `POST /api/inscripciones/progreso-leccion`: Guarda o actualiza el progreso en un módulo específico.
 
 ### Certificados (`/api/certificados`)
-*   `GET /api/certificados/`: Obtiene los certificados obtenidos por el usuario.
-*   `GET /api/certificados/descargar/{codigo_certificado}`: Descarga una versión imprimible en texto plano del certificado verificado.
+
+- `GET /api/certificados/`: Obtiene los certificados obtenidos por el usuario.
+- `GET /api/certificados/descargar/{codigo_certificado}`: Descarga una versión imprimible en texto plano del certificado verificado.
 
 ### Notificaciones (`/api/notificaciones`)
-*   `GET /api/notificaciones/`: Recupera las notificaciones del usuario ordenadas de más reciente a más antigua.
-*   `PUT /api/notificaciones/{notif_id}/leer`: Marca una notificación como leída.
-*   `DELETE /api/notificaciones/{notif_id}`: Elimina una notificación.
+
+- `GET /api/notificaciones/`: Recupera las notificaciones del usuario ordenadas de más reciente a más antigua.
+- `PUT /api/notificaciones/{notif_id}/leer`: Marca una notificación como leída.
+- `DELETE /api/notificaciones/{notif_id}`: Elimina una notificación.
 
 ### Sincronización (`/api/sincronizacion`)
-*   `POST /api/sincronizacion/sync`: Sincroniza en lote la cola de acciones offline.
+
+- `POST /api/sincronizacion/sync`: Sincroniza en lote la cola de acciones offline.
 
 ---
 
