@@ -32,15 +32,22 @@ async def get_current_user_id(
         alg = header.get("alg", "HS256")
         
         if alg == "ES256":
-            jwks_client = get_jwks_client()
-            signing_key = jwks_client.get_signing_key_from_jwt(token)
-            payload = jwt.decode(
-                token,
-                signing_key.key,
-                algorithms=["ES256"],
-                audience="authenticated",
-                leeway=60
-            )
+            try:
+                jwks_client = get_jwks_client()
+                signing_key = jwks_client.get_signing_key_from_jwt(token)
+                payload = jwt.decode(
+                    token,
+                    signing_key.key,
+                    algorithms=["ES256"],
+                    audience="authenticated",
+                    leeway=60
+                )
+            except Exception as e:
+                # No fallback sin verificación: si falla JWKS, rechazar el token
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail=f"No se pudo validar la firma del token (JWKS no disponible): {str(e)}",
+                )
         else:
             secret = settings.SUPABASE_JWT_SECRET
             try:

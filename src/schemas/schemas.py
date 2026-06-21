@@ -227,9 +227,62 @@ class AccionSyncItem(BaseModel):
 
 class SincronizacionRequest(BaseModel):
     nodo_id: Optional[str] = None
+    almacenamiento_usado_gb: Optional[float] = 0.00
+    almacenamiento_max_gb: Optional[float] = 5.00
+    version_app: Optional[str] = None
     acciones: List[AccionSyncItem]
 
 class SyncResult(BaseModel):
     procesados: int
     fallidos: int
     detalles: List[Dict[str, Any]]
+
+# ==========================================
+# ARCHIVOS DESCARGADOS
+# ==========================================
+class ArchivoDescargadoCreate(BaseModel):
+    curso_id: str
+    nombre_archivo: str
+    tamano: str
+    tipo: str
+    url_local: Optional[str] = None
+
+class ArchivoDescargadoResponse(BaseModel):
+    id: UUID
+    usuario_id: UUID
+    curso_id: str
+    nombre_archivo: str
+    tamano: str
+    tipo: str
+    url_local: Optional[str] = None
+    descargado_en: datetime
+    eliminado_en: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+# ==========================================
+# PREGUNTAS FRECUENTES (FAQs)
+# ==========================================
+class PreguntaFrecuenteResponse(BaseModel):
+    id: int
+    clave_pregunta: str
+    clave_respuesta: str
+    orden: int
+
+    class Config:
+        from_attributes = True
+
+# ==========================================
+# LOGROS
+# ==========================================
+class LogroResponse(BaseModel):
+    id: str
+    titulo_clave: str
+    descripcion_clave: str
+    icono: str
+    desbloqueado_en: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+

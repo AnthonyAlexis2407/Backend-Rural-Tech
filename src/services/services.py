@@ -3,7 +3,7 @@ from ..repositories.repositories import CursoRepository, PerfilRepository, Inscr
 from uuid import UUID
 import uuid
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 class CursoService:
     def __init__(self, db: AsyncSession):
@@ -91,7 +91,7 @@ class CursoService:
                 "modulo_id": modulo_id,
                 "completado": completado,
                 "puntaje_evaluacion": score,
-                "completado_en": datetime.utcnow() if completado else None
+                "completado_en": datetime.now(timezone.utc) if completado else None
             })
             await self.insc_repo.save_progreso_leccion(progreso)
         else:
@@ -101,30 +101,27 @@ class CursoService:
             if score is not None:
                 progreso.puntaje_evaluacion = score
             if completado and not progreso.completado_en:
-                progreso.completado_en = datetime.utcnow()
+                progreso.completado_en = datetime.now(timezone.utc)
             await self.insc_repo.save_progreso_leccion(progreso)
 
         if module_just_completed:
-            try:
-                # Obtener detalles de curso y módulo para el mensaje
-                curso = await self.curso_repo.get_curso_by_id(curso_id)
-                curso_titulo = curso.titulo if curso else curso_id
-                
-                modulo_obj = await self.curso_repo.get_modulo_by_id(modulo_id)
-                modulo_titulo = modulo_obj.titulo if modulo_obj else "módulo"
-                
-                notif_mod = RowObject({
-                    "id": uuid.uuid4(),
-                    "usuario_id": usuario_id,
-                    "tipo": "lesson_complete",
-                    "titulo": "Módulo Completado",
-                    "mensaje": f"¡Buen trabajo! Completaste el módulo '{modulo_titulo}' del curso '{curso_titulo}'.",
-                    "ruta_accion": f"/courses/{curso_id}",
-                    "leido": False
-                })
-                await self.notif_repo.save_notificacion(notif_mod)
-            except Exception as e:
-                print(f"Error al registrar notificación de módulo completado: {e}")
+            # Obtener detalles de curso y módulo para el mensaje
+            curso = await self.curso_repo.get_curso_by_id(curso_id)
+            curso_titulo = curso.titulo if curso else curso_id
+            
+            modulo_obj = await self.curso_repo.get_modulo_by_id(modulo_id)
+            modulo_titulo = modulo_obj.titulo if modulo_obj else "módulo"
+            
+            notif_mod = RowObject({
+                "id": uuid.uuid4(),
+                "usuario_id": usuario_id,
+                "tipo": "lesson_complete",
+                "titulo": "Módulo Completado",
+                "mensaje": f"¡Buen trabajo! Completaste el módulo '{modulo_titulo}' del curso '{curso_titulo}'.",
+                "ruta_accion": f"/courses/{curso_id}",
+                "leido": False
+            })
+            await self.notif_repo.save_notificacion(notif_mod)
 
         # 3. Recalcular el progreso general de la inscripción
         modulos = await self.curso_repo.get_modulos_by_curso(curso_id)
@@ -142,12 +139,12 @@ class CursoService:
         # 4. Verificar si completó el curso al 100% para emitir certificado
         certificado_emitido = False
         if inscripcion.progreso == 100 and not inscripcion.completado_en:
-            inscripcion.completado_en = datetime.utcnow()
+            inscripcion.completado_en = datetime.now(timezone.utc)
             
             # Emitir Certificado si no existe
             cert_existing = await self.cert_repo.get_certificado(usuario_id, curso_id)
             if not cert_existing:
-                cert_code = f"RT-CERT-{int(datetime.utcnow().timestamp())}"
+                cert_code = f"RT-CERT-{int(datetime.now(timezone.utc).timestamp())}"
                 certificado = RowObject({
                     "id": uuid.uuid4(),
                     "usuario_id": usuario_id,
@@ -172,6 +169,27 @@ class CursoService:
 
         # Guardar cambios en la inscripción
         await self.insc_repo.save_inscripcion(inscripcion)
+
+        # 5. Evaluar logros en la base de datos
+        from ..repositories.repositories import LogroRepository
+        logro_repo = LogroRepository(self.db)
+        
+        # Obtener todas las inscripciones del usuario para evaluar
+        todas_inscripciones = await self.insc_repo.get_inscripciones_by_usuario(usuario_id)
+        
+        completed_courses = [i for i in todas_inscripciones if i.progreso >= 100]
+        completed_count = len(completed_courses)
+        
+        total_prog = sum(i.progreso for i in todas_inscripciones)
+        avg_progress = total_prog / len(todas_inscripciones) if todas_inscripciones else 0
+        
+        # Logro: Primer curso completado
+        if completed_count >= 1:
+            await logro_repo.unlock_logro(usuario_id, "first_course")
+        
+        # Logro: Progreso general > 50%
+        if avg_progress > 50:
+            await logro_repo.unlock_logro(usuario_id, "half_progress")
 
         return {
             "progreso_curso": inscripcion.progreso,
@@ -201,16 +219,17 @@ class CursoService:
             "color": data.color,
             "disponible": data.disponible
         })
-        new_curso = await self.curso_repo.create_curso(curso)
+        await self.curso_repo.create_curso(curso)
+        new_curso = await self.curso_repo.get_curso_by_id(data.id)
         
         # Enviar notificación de nuevo curso a todos los usuarios si está disponible
-        if data.disponible:
+        if data.disponible and new_curso:
             try:
-                await self.notif_repo.notify_all_users_new_course(curso.id, curso.titulo)
+                await self.notif_repo.notify_all_users_new_course(new_curso.id, new_curso.titulo)
             except Exception as e:
                 print(f"Error al notificar nuevo curso: {e}")
                 
-        return new_curso
+        return new_curso if new_curso else curso
 
     async def actualizar_curso(self, curso_id: str, data: Any) -> Optional[RowObject]:
         curso = await self.curso_repo.get_curso_by_id(curso_id)
@@ -227,15 +246,16 @@ class CursoService:
             setattr(curso, field, value)
             
         await self.curso_repo.update_curso(curso)
+        updated_curso = await self.curso_repo.get_curso_by_id(curso_id)
         
         # Si pasó a estar disponible, notificar a los usuarios
-        if curso.disponible and not was_available:
+        if updated_curso and updated_curso.disponible and not was_available:
             try:
-                await self.notif_repo.notify_all_users_new_course(curso.id, curso.titulo)
+                await self.notif_repo.notify_all_users_new_course(updated_curso.id, updated_curso.titulo)
             except Exception as e:
                 print(f"Error al notificar nuevo curso por actualización: {e}")
                 
-        return curso
+        return updated_curso if updated_curso else curso
 
     async def eliminar_curso(self, curso_id: str) -> bool:
         curso = await self.curso_repo.get_curso_by_id(curso_id)
@@ -282,10 +302,32 @@ class SyncService:
         self.curso_service = CursoService(db)
         self.notif_repo = NotificacionRepository(db)
 
-    async def procesar_cola_sincronizacion(self, usuario_id: UUID, acciones: List[Dict[str, Any]]) -> Dict[str, Any]:
+    async def procesar_cola_sincronizacion(
+        self, 
+        usuario_id: UUID, 
+        acciones: List[Dict[str, Any]],
+        nodo_id: Optional[str] = None,
+        almacenamiento_usado_gb: Optional[float] = 0.00,
+        almacenamiento_max_gb: Optional[float] = 5.00,
+        version_app: Optional[str] = None
+    ) -> Dict[str, Any]:
+        from ..repositories.repositories import NodoRepository, ColaSincronizacionRepository
+
+        # 1. Upsertar información del nodo si está disponible
+        if nodo_id:
+            nodo_repo = NodoRepository(self.db)
+            await nodo_repo.upsert_nodo(
+                nodo_id=nodo_id,
+                usuario_id=usuario_id,
+                almacenamiento_usado_gb=almacenamiento_usado_gb or 0.00,
+                almacenamiento_max_gb=almacenamiento_max_gb or 5.00,
+                version_app=version_app or "1.0.0"
+            )
+
         procesados = 0
         fallidos = 0
         detalles = []
+        cola_repo = ColaSincronizacionRepository(self.db)
 
         for item in acciones:
             accion_tipo = item.get("accion")
@@ -310,6 +352,15 @@ class SyncService:
                     procesados += 1
                     detalles.append({"accion": accion_tipo, "estado": "success", "info": res})
                     
+                    # Guardar log en cola_sincronizacion
+                    await cola_repo.save_sync_log(
+                        usuario_id=usuario_id,
+                        nodo_id=nodo_id,
+                        accion=accion_tipo,
+                        payload=payload,
+                        estado="completed"
+                    )
+                    
                 elif accion_tipo == "SUBMIT_ASSESSMENT":
                     curso_id = payload.get("courseId")
                     modulo_id_str = payload.get("moduleId")
@@ -329,6 +380,15 @@ class SyncService:
                     )
                     procesados += 1
                     detalles.append({"accion": accion_tipo, "estado": "success", "info": res})
+                    
+                    # Guardar log en cola_sincronizacion
+                    await cola_repo.save_sync_log(
+                        usuario_id=usuario_id,
+                        nodo_id=nodo_id,
+                        accion=accion_tipo,
+                        payload=payload,
+                        estado="completed"
+                    )
                 elif accion_tipo == "ENROLL_COURSE":
                     curso_id = payload.get("courseId")
                     tema_ui = payload.get("theme") or "grey"
@@ -342,11 +402,30 @@ class SyncService:
                     )
                     procesados += 1
                     detalles.append({"accion": accion_tipo, "estado": "success", "info": res})
+                    
+                    # Guardar log en cola_sincronizacion
+                    await cola_repo.save_sync_log(
+                        usuario_id=usuario_id,
+                        nodo_id=nodo_id,
+                        accion=accion_tipo,
+                        payload=payload,
+                        estado="completed"
+                    )
                 else:
                     raise ValueError(f"Acción '{accion_tipo}' no reconocida")
             except Exception as e:
                 fallidos += 1
                 detalles.append({"accion": accion_tipo, "estado": "failed", "error": str(e)})
+                
+                # Guardar log en cola_sincronizacion
+                await cola_repo.save_sync_log(
+                    usuario_id=usuario_id,
+                    nodo_id=nodo_id,
+                    accion=accion_tipo,
+                    payload=payload,
+                    estado="failed",
+                    error_msg=str(e)
+                )
 
         # Si procesó acciones exitosamente, emitimos notificación de sincronización
         if procesados > 0:

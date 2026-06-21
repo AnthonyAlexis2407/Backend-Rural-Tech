@@ -23,5 +23,11 @@ class Settings:
     SUPABASE_URL: str = os.getenv("SUPABASE_URL", "https://nzilzfmicdorkadgudfi.supabase.co")
     SUPABASE_ANON_KEY: str = os.getenv("SUPABASE_ANON_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56aWx6Zm1pY2RvcmthZGd1ZGZpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEyNzk2NzUsImV4cCI6MjA5Njg1NTY3NX0.o2nLLak2QNL8tC8SSYLS9PAQbu-r1et7v3XBrSrp0Bw")
 
+    # Orígenes CORS permitidos (separados por comas)
+    CORS_ORIGINS: list[str] = os.getenv("CORS_ORIGINS", "http://localhost:4200,http://127.0.0.1:4200").split(",")
+
+    # Modo debug (para logging SQL, etc.)
+    DEBUG: bool = os.getenv("DEBUG", "false").lower() == "true"
+
 settings = Settings()
 
