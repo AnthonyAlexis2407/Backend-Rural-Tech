@@ -68,17 +68,40 @@ async def upload_file(
     file: UploadFile = File(...),
     admin_id: str = Depends(get_current_admin_id)
 ):
-    UPLOAD_DIR = "/tmp/uploads" if os.environ.get("VERCEL") else "uploads"
-    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    content = await file.read()
     file_extension = os.path.splitext(file.filename)[1]
     unique_filename = f"{uuid.uuid4()}{file_extension}"
-    file_path = os.path.join(UPLOAD_DIR, unique_filename)
     
-    async with aiofiles.open(file_path, 'wb') as out_file:
-        content = await file.read()
-        await out_file.write(content)
-        
-    return {"status": "success", "url": f"/uploads/{unique_filename}"}
+    # Generar token service_role para tener permisos de escritura
+    secret = settings.SUPABASE_JWT_SECRET
+    now = int(time.time())
+    project_ref = settings.SUPABASE_URL.split("//")[-1].split(".")[0]
+    
+    jwt_claims = {
+        "role": "service_role",
+        "iss": "supabase",
+        "ref": project_ref,
+        "iat": now,
+        "exp": now + 3600
+    }
+    service_role_token = jwt.encode(jwt_claims, secret, algorithm="HS256")
+    
+    url = f"{settings.SUPABASE_URL}/storage/v1/object/archivos/{unique_filename}"
+    headers = {
+        "apikey": settings.SUPABASE_ANON_KEY,
+        "Authorization": f"Bearer {service_role_token}",
+        "Content-Type": file.content_type or "application/octet-stream"
+    }
+    
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        try:
+            res = await client.post(url, content=content, headers=headers)
+            res.raise_for_status()
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error subiendo a Supabase Storage: {str(e)}")
+            
+    public_url = f"{settings.SUPABASE_URL}/storage/v1/object/public/archivos/{unique_filename}"
+    return {"status": "success", "url": public_url}
 
 async def _create_supabase_user(
     email: str,
